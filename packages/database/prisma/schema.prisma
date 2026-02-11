@@ -1,0 +1,240 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  HR_MANAGER
+  HIRING_MANAGER
+  EMPLOYEE
+}
+
+enum JDStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  departments Department[]
+  templates   JDTemplate[]
+  jds         JobDescription[]
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  passwordHash   String?
+  firstName      String?
+  lastName       String?
+  role           Role         @default(EMPLOYEE)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  departmentId   String?
+  department     Department?  @relation(fields: [departmentId], references: [id])
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  managedJDs     JobDescription[] @relation("JDManager")
+  createdJDs     JobDescription[] @relation("JDCreator")
+  approvals      ApprovalStep[]
+  actions        ApprovalAction[]
+  comments       Comment[]
+}
+
+model Department {
+  id             String       @id @default(cuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  parentId       String?
+  parent         Department?  @relation("DeptHierarchy", fields: [parentId], references: [id])
+  children       Department[] @relation("DeptHierarchy")
+  
+  users          User[]
+  jds            JobDescription[]
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model JDTemplate {
+  id             String       @id @default(cuid())
+  name           String
+  content        Json         // Structured template configuration
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  jds            JobDescription[]
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model JobDescription {
+  id             String       @id @default(cuid())
+  title          String
+  content        Json         // The actual JD content (prose/sections)
+  status         JDStatus     @default(DRAFT)
+  version        Int          @default(1)
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  departmentId   String
+  department     Department   @relation(fields: [departmentId], references: [id])
+  
+  templateId     String?
+  template       JDTemplate?  @relation(fields: [templateId], references: [id])
+  
+  creatorId      String
+  creator        User         @relation("JDCreator", fields: [creatorId], references: [id])
+  
+  managerId      String?
+  manager        User?        @relation("JDManager", fields: [managerId], references: [id])
+  
+  approvalWorkflow ApprovalWorkflow?
+  comments       Comment[]
+  applications   Application[]
+  embedding      Unsupported("vector(384)")?
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model ApprovalWorkflow {
+  id               String          @id @default(cuid())
+  jobDescriptionId String          @unique
+  jobDescription   JobDescription  @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+  status           WorkflowStatus  @default(PENDING)
+  currentStepOrder Int             @default(1)
+  steps            ApprovalStep[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+enum WorkflowStatus {
+  PENDING
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ApprovalStep {
+  id         String           @id @default(cuid())
+  workflowId String
+  workflow   ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  order      Int              // Sequential order (1, 2, 3...)
+  approverId String
+  approver   User             @relation(fields: [approverId], references: [id])
+  status     StepStatus       @default(PENDING)
+  actions    ApprovalAction[]
+  dueDate    DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  
+  @@unique([workflowId, order])
+}
+
+enum StepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+model ApprovalAction {
+  id        String         @id @default(cuid())
+  stepId    String
+  step      ApprovalStep   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  action    ActionType
+  comment   String?
+  actorId   String
+  actor     User           @relation(fields: [actorId], references: [id])
+  createdAt DateTime       @default(now())
+}
+
+enum ActionType {
+  APPROVE
+  REJECT
+  REQUEST_CHANGES
+  COMMENT
+}
+
+model Comment {
+  id               String         @id @default(cuid())
+  content          String
+  authorId         String
+  author           User           @relation(fields: [authorId], references: [id])
+  
+  jobDescriptionId String
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id])
+  
+  parentId         String?
+  parent           Comment?       @relation("CommentThread", fields: [parentId], references: [id])
+  replies          Comment[]      @relation("CommentThread")
+  
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model Candidate {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  firstName    String
+  lastName     String
+  phoneNumber  String?
+  resumeUrl    String?
+  applications Application[]
+  embedding    Unsupported("vector(384)")?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Application {
+  id               String            @id @default(cuid())
+  candidateId      String
+  candidate        Candidate         @relation(fields: [candidateId], references: [id])
+  jobDescriptionId String
+  jobDescription   JobDescription    @relation(fields: [jobDescriptionId], references: [id])
+  status           ApplicationStatus @default(APPLIED)
+  matchScore       Int?
+  matchAnalysis    String?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([candidateId, jobDescriptionId])
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  OFFERED
+  HIRED
+  REJECTED
+}

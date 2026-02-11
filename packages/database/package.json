@@ -1,0 +1,17 @@
+{
+    "name": "@talent/database",
+    "version": "0.0.0",
+    "main": "./index.ts",
+    "types": "./index.ts",
+    "dependencies": {
+        "@prisma/client": "^5.10.2"
+    },
+    "devDependencies": {
+        "prisma": "^5.10.2",
+        "typescript": "^5.3.3"
+    },
+    "scripts": {
+        "db:generate": "prisma generate",
+        "db:push": "prisma db push"
+    }
+}
